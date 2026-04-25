@@ -1,145 +1,125 @@
-import streamlit as st
-import pandas as pd
+# =========================
+# RESUMEN TIPO EXCEL (FAMILIA x MES x AÑO)
+# =========================
+st.subheader("📊 Resumen de Merma por Familia")
 
-st.set_page_config(layout="wide")
-st.title("📊 Control de Mermas - Enfoque Operativo")
+df_resumen = df[df["AÑO1"].isin([2025, 2026])]
 
-file = st.file_uploader("Sube tu Excel", type=["xlsx"])
+# ORDEN DE MESES
+orden_meses = {
+    1: "Ene", 2: "Feb", 3: "Mar", 4: "Abr",
+    5: "May", 6: "Jun", 7: "Jul", 8: "Ago",
+    9: "Sep", 10: "Oct", 11: "Nov", 12: "Dic"
+}
 
-if file:
-    df = pd.read_excel(file)
+df_resumen["MES_NOMBRE"] = df_resumen["MES1"].map(orden_meses)
 
-    # =========================
-    # LIMPIEZA
-    # =========================
-    df["FECHACONT1"] = pd.to_datetime(df["FECHACONT1"], errors="coerce")
+# TABLA PIVOT
+tabla = pd.pivot_table(
+    df_resumen,
+    values="VALOR1",
+    index="FAMILIA1",
+    columns=["AÑO1", "MES_NOMBRE"],
+    aggfunc="sum",
+    fill_value=0
+)
 
-    # SOLO AÑOS 2025-2026
-    df = df[df["AÑO1"].isin([2025, 2026])]
+# ORDENAR COLUMNAS
+tabla = tabla.sort_index(axis=1, level=0)
 
-    # =========================
-    # FILTROS
-    # =========================
-    st.sidebar.header("Filtros")
+# AGREGAR TOTAL POR FILA
+tabla["TOTAL"] = tabla.sum(axis=1)
 
-    mov = st.sidebar.multiselect(
-        "Tipo de movimiento",
-        df["NOMBREMOV1"].unique(),
-        default=df["NOMBREMOV1"].unique()
-    )
+# AGREGAR TOTAL GENERAL (fila)
+total_general = tabla.sum().to_frame(name="TOTAL").T
+total_general.index = ["TOTAL"]
 
-    df = df[df["NOMBREMOV1"].isin(mov)]
+tabla_final = pd.concat([tabla, total_general])
 
-    # =========================
-    # 1. MERMA POR MOVIMIENTO (MES + AÑO)
-    # =========================
-    st.subheader("📊 Merma por Tipo de Movimiento")
+# FORMATO MONEDA
+tabla_final = tabla_final.style.format("${:,.0f}")
 
-    resumen = df.groupby(
-        ["AÑO1", "MES1", "NOMBREMOV1"]
-    )[["CAJAS1", "VALOR1"]].sum().reset_index()
-
-    st.dataframe(resumen)
-
-    st.bar_chart(
-        resumen.groupby("NOMBREMOV1")["VALOR1"].sum()
-    )
-
-    # =========================
-    # 2. DESGLOSE POR FAMILIA
-    # =========================
-    st.subheader("🧩 Desglose por Familia")
-
-    mov_sel = st.selectbox(
-        "Selecciona movimiento",
-        df["NOMBREMOV1"].unique()
-    )
-
-    df_mov = df[df["NOMBREMOV1"] == mov_sel]
-
-    familia = df_mov.groupby("FAMILIA1")[["CAJAS1", "VALOR1"]].sum().sort_values(by="VALOR1", ascending=False)
-
-    st.dataframe(familia)
-
-    # =========================
-    # 3. CONTROL SEMANAL / DIARIO
-    # =========================
-    st.subheader("📅 Control Diario por Semana")
-
-    col1, col2, col3 = st.columns(3)
-
-    with col1:
-        año = st.selectbox("Año", df["AÑO1"].unique())
-    with col2:
-        mes = st.selectbox("Mes", df["MES1"].unique())
-    with col3:
-        semana = st.selectbox("Semana", df["SEMANA1"].unique())
-
-    df_sem = df[
-        (df["AÑO1"] == año) &
-        (df["MES1"] == mes) &
-        (df["SEMANA1"] == semana)
-    ]
-
-    # AGRUPAR POR DIA Y PRODUCTO
-    detalle = df_sem.groupby(
-        ["FECHACONT1", "DESCRIPCION1", "FAMILIA1"]
-    )[["CAJAS1", "VALOR1"]].sum().reset_index()
-
-    detalle = detalle.sort_values(by="VALOR1", ascending=False)
-
-    st.dataframe(detalle)
-
-    # TOP PRODUCTOS
-    st.subheader("🔥 Productos críticos de la semana")
-
-    top = detalle.groupby("DESCRIPCION1")["VALOR1"].sum().sort_values(ascending=False).head(10)
-
-    st.bar_chart(top)
+st.dataframe(tabla_final, use_container_width=True)
 
 # =========================
-# 4. TOP 10 CODIGOS POR FAMILIA Y MOVIMIENTO
+# MATRIZ SEMANAL FORMATO EXCEL
 # =========================
-st.subheader("🏆 Top 10 Códigos con Mayor Merma")
+st.subheader("📅 Seguimiento Semanal")
 
-col1, col2, col3, col4 = st.columns(4)
+df["DIA_SEMANA"] = df["FECHACONT1"].dt.day_name()
+
+# ORDEN DIAS
+orden_dias = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+
+col1, col2, col3 = st.columns(3)
 
 with col1:
-    mov_top = st.selectbox("Tipo de movimiento (Top)", df["NOMBREMOV1"].unique(), key="mov_top")
-
+    año = st.selectbox("Año", [2025, 2026])
 with col2:
-    año_top = st.selectbox("Año (Top)", sorted(df["AÑO1"].unique()), key="año_top")
-
+    mes = st.selectbox("Mes", sorted(df["MES1"].unique()))
 with col3:
-    mes_top = st.selectbox("Mes (Top)", sorted(df["MES1"].unique()), key="mes_top")
+    familia = st.selectbox("Familia", df["FAMILIA1"].unique())
 
-with col4:
-    fam_top = st.selectbox("Familia (Top)", df["FAMILIA1"].unique(), key="fam_top")
-
-# FILTRADO
-df_top = df[
-    (df["NOMBREMOV1"] == mov_top) &
-    (df["AÑO1"] == año_top) &
-    (df["MES1"] == mes_top) &
-    (df["FAMILIA1"] == fam_top)
+df_sem = df[
+    (df["AÑO1"] == año) &
+    (df["MES1"] == mes) &
+    (df["FAMILIA1"] == familia)
 ]
 
-# AGRUPAR POR CODIGO
-top_codigos = df_top.groupby(
+tabla_semana = pd.pivot_table(
+    df_sem,
+    values="VALOR1",
+    index="SEMANA1",
+    columns="DIA_SEMANA",
+    aggfunc="sum",
+    fill_value=0
+)
+
+# ORDENAR DIAS
+tabla_semana = tabla_semana.reindex(columns=orden_dias)
+
+# TOTAL POR SEMANA
+tabla_semana["TOTAL"] = tabla_semana.sum(axis=1)
+
+# TOTAL GENERAL
+total_semana = tabla_semana.sum().to_frame(name="TOTAL").T
+total_semana.index = ["TOTAL"]
+
+tabla_semana = pd.concat([tabla_semana, total_semana])
+
+# FORMATO
+tabla_semana = tabla_semana.style.format("${:,.0f}")
+
+st.dataframe(tabla_semana, use_container_width=True)
+
+# =========================
+# DETALLE PRODUCTOS
+# =========================
+st.subheader("🔎 Detalle de Productos")
+
+detalle = df_sem.groupby(
     ["CODIGO1", "DESCRIPCION1"]
 )[["CAJAS1", "VALOR1"]].sum().reset_index()
 
-top_codigos = top_codigos.sort_values(by="VALOR1", ascending=False).head(10)
+detalle = detalle.sort_values(by="VALOR1", ascending=False)
 
-# MOSTRAR TABLA
-st.dataframe(top_codigos)
+st.dataframe(
+    detalle.style.format({
+        "VALOR1": "${:,.0f}",
+        "CAJAS1": "{:,.0f}"
+    }),
+    use_container_width=True
+)
 
-# GRAFICO
-st.bar_chart(top_codigos.set_index("DESCRIPCION1")["VALOR1"])
+st.subheader("🏆 Top 10 Productos")
 
-total_top = top_codigos["VALOR1"].sum()
-total_all = df_top["VALOR1"].sum()
+top10 = detalle.head(10)
 
-if total_all > 0:
-    porcentaje = (total_top / total_all) * 100
-    st.info(f"📌 El Top 10 representa el {porcentaje:.1f}% de la merma total")
+st.dataframe(
+    top10.style.format({
+        "VALOR1": "${:,.0f}",
+        "CAJAS1": "{:,.0f}"
+    }),
+    use_container_width=True
+)
+
