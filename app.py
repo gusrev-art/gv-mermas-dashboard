@@ -2,118 +2,144 @@ import streamlit as st
 import pandas as pd
 
 st.set_page_config(layout="wide")
-
-st.title("📊 Dashboard Mermas - GV Stock")
+st.title("📊 Control de Mermas - Enfoque Operativo")
 
 file = st.file_uploader("Sube tu Excel", type=["xlsx"])
 
 if file:
     df = pd.read_excel(file)
+
+    # =========================
+    # LIMPIEZA
+    # =========================
     df["FECHACONT1"] = pd.to_datetime(df["FECHACONT1"], errors="coerce")
+
+    # SOLO AÑOS 2025-2026
+    df = df[df["AÑO1"].isin([2025, 2026])]
 
     # =========================
     # FILTROS
     # =========================
     st.sidebar.header("Filtros")
 
-    año = st.sidebar.multiselect("Año", df["AÑO1"].unique(), default=df["AÑO1"].unique())
-    mes = st.sidebar.multiselect("Mes", df["MES1"].unique(), default=df["MES1"].unique())
-    marca = st.sidebar.multiselect("Marca", df["MARCA1"].unique(), default=df["MARCA1"].unique())
+    mov = st.sidebar.multiselect(
+        "Tipo de movimiento",
+        df["NOMBREMOV1"].unique(),
+        default=df["NOMBREMOV1"].unique()
+    )
 
-    df = df[
-        (df["AÑO1"].isin(año)) &
-        (df["MES1"].isin(mes)) &
-        (df["MARCA1"].isin(marca))
-    ]
+    df = df[df["NOMBREMOV1"].isin(mov)]
 
     # =========================
-    # KPIs (EJECUTIVO)
+    # 1. MERMA POR MOVIMIENTO (MES + AÑO)
     # =========================
-    total = df["VALOR1"].sum()
-    cajas = df["CAJAS1"].sum()
-    unidades = df["UNIDADES1"].sum()
+    st.subheader("📊 Merma por Tipo de Movimiento")
 
-    k1, k2, k3 = st.columns(3)
-    k1.metric("💰 Merma Total", f"${total:,.0f}")
-    k2.metric("📦 Cajas", f"{cajas:,.0f}")
-    k3.metric("🔢 Unidades", f"{unidades:,.0f}")
+    resumen = df.groupby(
+        ["AÑO1", "MES1", "NOMBREMOV1"]
+    )[["CAJAS1", "VALOR1"]].sum().reset_index()
 
-    # =========================
-    # TENDENCIA GENERAL
-    # =========================
-    st.subheader("📈 Tendencia mensual general")
-    df["MES_AÑO"] = df["FECHACONT1"].dt.to_period("M")
-    tendencia = df.groupby("MES_AÑO")["VALOR1"].sum()
-    st.line_chart(tendencia)
+    st.dataframe(resumen)
+
+    st.bar_chart(
+        resumen.groupby("NOMBREMOV1")["VALOR1"].sum()
+    )
 
     # =========================
-    # INSIGHT GENERAL
+    # 2. DESGLOSE POR FAMILIA
     # =========================
-    motivos = df.groupby("NOMBREMOV1")["VALOR1"].sum().sort_values(ascending=False)
-    top3 = motivos.head(3).sum()
-    total_val = motivos.sum()
+    st.subheader("🧩 Desglose por Familia")
 
-    if total_val > 0:
-        porcentaje = (top3 / total_val) * 100
-        st.info(f"📌 El {porcentaje:.1f}% de la merma total proviene de los 3 principales motivos")
+    mov_sel = st.selectbox(
+        "Selecciona movimiento",
+        df["NOMBREMOV1"].unique()
+    )
+
+    df_mov = df[df["NOMBREMOV1"] == mov_sel]
+
+    familia = df_mov.groupby("FAMILIA1")[["CAJAS1", "VALOR1"]].sum().sort_values(by="VALOR1", ascending=False)
+
+    st.dataframe(familia)
 
     # =========================
-    # ANALITICA GENERAL
+    # 3. CONTROL SEMANAL / DIARIO
     # =========================
-    col1, col2 = st.columns(2)
+    st.subheader("📅 Control Diario por Semana")
+
+    col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.subheader("🏆 Top productos")
-        prod = df.groupby("DESCRIPCION1")["VALOR1"].sum().sort_values(ascending=False).head(10)
-        st.bar_chart(prod)
-
+        año = st.selectbox("Año", df["AÑO1"].unique())
     with col2:
-        st.subheader("📊 Merma por motivo")
-        st.bar_chart(motivos)
-
-    col3, col4 = st.columns(2)
-
+        mes = st.selectbox("Mes", df["MES1"].unique())
     with col3:
-        st.subheader("📦 Por familia")
-        fam = df.groupby("FAMILIA1")["VALOR1"].sum()
-        st.bar_chart(fam)
+        semana = st.selectbox("Semana", df["SEMANA1"].unique())
 
-    with col4:
-        st.subheader("🏷️ Por marca")
-        marca_chart = df.groupby("MARCA1")["VALOR1"].sum()
-        st.bar_chart(marca_chart)
+    df_sem = df[
+        (df["AÑO1"] == año) &
+        (df["MES1"] == mes) &
+        (df["SEMANA1"] == semana)
+    ]
 
-    # =========================
-    # ANALISIS POR FAMILIA (TU REQUERIMIENTO)
-    # =========================
-    st.subheader("🧠 Análisis detallado por familia")
+    # AGRUPAR POR DIA Y PRODUCTO
+    detalle = df_sem.groupby(
+        ["FECHACONT1", "DESCRIPCION1", "FAMILIA1"]
+    )[["CAJAS1", "VALOR1"]].sum().reset_index()
 
-    familia_sel = st.selectbox("Selecciona una familia", df["FAMILIA1"].dropna().unique())
+    detalle = detalle.sort_values(by="VALOR1", ascending=False)
 
-    df_fam = df[df["FAMILIA1"] == familia_sel]
+    st.dataframe(detalle)
 
-    col5, col6 = st.columns(2)
+    # TOP PRODUCTOS
+    st.subheader("🔥 Productos críticos de la semana")
 
-    with col5:
-        st.markdown("### 📈 Evolución mensual")
-        tendencia_fam = df_fam.groupby("MES_AÑO")["VALOR1"].sum()
-        st.line_chart(tendencia_fam)
+    top = detalle.groupby("DESCRIPCION1")["VALOR1"].sum().sort_values(ascending=False).head(10)
 
-    with col6:
-        st.markdown("### 🏆 Top productos de la familia")
-        top_prod = df_fam.groupby("DESCRIPCION1")["VALOR1"].sum().sort_values(ascending=False).head(10)
-        st.bar_chart(top_prod)
+    st.bar_chart(top)
 
-    # Insight familia
-    total_fam = df_fam["VALOR1"].sum()
-    top3_fam = df_fam.groupby("DESCRIPCION1")["VALOR1"].sum().sort_values(ascending=False).head(3).sum()
+# =========================
+# 4. TOP 10 CODIGOS POR FAMILIA Y MOVIMIENTO
+# =========================
+st.subheader("🏆 Top 10 Códigos con Mayor Merma")
 
-    if total_fam > 0:
-        porcentaje_fam = (top3_fam / total_fam) * 100
-        st.info(f"📌 El {porcentaje_fam:.1f}% de la merma de esta familia proviene de los 3 productos principales")
+col1, col2, col3, col4 = st.columns(4)
 
-    # =========================
-    # DETALLE OPERATIVO
-    # =========================
-    st.subheader("🔎 Detalle de registros")
-    st.dataframe(df)
+with col1:
+    mov_top = st.selectbox("Tipo de movimiento (Top)", df["NOMBREMOV1"].unique(), key="mov_top")
+
+with col2:
+    año_top = st.selectbox("Año (Top)", sorted(df["AÑO1"].unique()), key="año_top")
+
+with col3:
+    mes_top = st.selectbox("Mes (Top)", sorted(df["MES1"].unique()), key="mes_top")
+
+with col4:
+    fam_top = st.selectbox("Familia (Top)", df["FAMILIA1"].unique(), key="fam_top")
+
+# FILTRADO
+df_top = df[
+    (df["NOMBREMOV1"] == mov_top) &
+    (df["AÑO1"] == año_top) &
+    (df["MES1"] == mes_top) &
+    (df["FAMILIA1"] == fam_top)
+]
+
+# AGRUPAR POR CODIGO
+top_codigos = df_top.groupby(
+    ["CODIGO1", "DESCRIPCION1"]
+)[["CAJAS1", "VALOR1"]].sum().reset_index()
+
+top_codigos = top_codigos.sort_values(by="VALOR1", ascending=False).head(10)
+
+# MOSTRAR TABLA
+st.dataframe(top_codigos)
+
+# GRAFICO
+st.bar_chart(top_codigos.set_index("DESCRIPCION1")["VALOR1"])
+
+total_top = top_codigos["VALOR1"].sum()
+total_all = df_top["VALOR1"].sum()
+
+if total_all > 0:
+    porcentaje = (total_top / total_all) * 100
+    st.info(f"📌 El Top 10 representa el {porcentaje:.1f}% de la merma total")
