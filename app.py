@@ -1,7 +1,7 @@
 # =========================
 # RESUMEN TIPO EXCEL (FAMILIA x MES x AÑO)
 # =========================
-st.subheader("📊 Resumen de Merma por Familia")
+st.subheader("Resumen de Merma por Familia")
 
 df_resumen = df[df["AÑO1"].isin([2025, 2026])]
 
